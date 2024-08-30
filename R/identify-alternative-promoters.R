@@ -102,14 +102,16 @@ fitPromoters <- function(result, referenceCondition, type, thres) {
     }
     rdata <- rowData(result)
     condition <- result$condition
-    nonInternalId <- which(rdata$internalPromoter == FALSE)
+    
+    # Remove the filtering step for internal promoters
+    # nonInternalId <- which(rdata$internalPromoter == FALSE)
     pval <- rep(NaN, nrow(rdata))
     
-    ## Regression - restrict to non-internal
+    ## Regression - include all promoters
     message(paste0("Fitting ", type, " promoter activity to condition..."))
-    assay <- raw.assay[nonInternalId, ]
+    assay <- raw.assay  # No filtering, include all promoters
     num.pros <- nrow(assay)
-    pval[nonInternalId] <- unlist(lapply(seq_len(num.pros), function(i) 
+    pval <- unlist(lapply(seq_len(num.pros), function(i) 
         tryCatch(summary(lm(unlist(assay[i,]) ~ condition))$coef[2,4], 
                 warning = function(cond) 1,
                 error = function(cond) NaN)))
@@ -140,4 +142,51 @@ fitPromoters <- function(result, referenceCondition, type, thres) {
                                     gexp.other = mean.gexp.other)
     return(result)
 }
-
+fitPromoters <- function(result, referenceCondition, type, thres) {
+    if (type == "absolute") {
+        raw.assay <- assays(result)$absolutePromoterActivity
+    } else if (type == "relative") {
+        raw.assay <- assays(result)$relativePromoterActivity
+    }
+    rdata <- rowData(result)
+    condition <- result$condition
+    
+    # Remove the filtering step for internal promoters
+    # nonInternalId <- which(rdata$internalPromoter == FALSE)
+    pval <- rep(NaN, nrow(rdata))
+    
+    ## Regression - include all promoters
+    message(paste0("Fitting ", type, " promoter activity to condition..."))
+    assay <- raw.assay  # No filtering, include all promoters
+    num.pros <- nrow(assay)
+    pval <- unlist(lapply(seq_len(num.pros), function(i) 
+        tryCatch(summary(lm(unlist(assay[i,]) ~ condition))$coef[2,4], 
+                warning = function(cond) 1,
+                error = function(cond) NaN)))
+    padj <- p.adjust(pval, method = "BH")
+    
+    ## Other metrics
+    ## - mean absolute promoter activity each in group
+    ## - gene expression
+    id <- which(condition == referenceCondition)
+    
+    mean.cond <- rowMeans(raw.assay[,id, drop = FALSE], na.rm = TRUE) 
+    mean.other <- rowMeans(raw.assay[,-id, drop = FALSE], na.rm = TRUE) 
+    
+    gexp <- assays(result)$gene
+    gexp <- as.matrix(gexp[, result$sampleName])
+    rownames(gexp) <- rowData(result)$geneId
+    mean.gexp.cond <- rowMeans(gexp[,id, drop = FALSE], na.rm=TRUE)
+    mean.gexp.cond <- mean.gexp.cond[match(rdata$geneId, rownames(gexp))]
+    mean.gexp.other <- rowMeans(gexp[,-id, drop = FALSE], na.rm=TRUE)
+    mean.gexp.other <- mean.gexp.other[match(rdata$geneId, rownames(gexp))]
+    result <- data.frame(promoterId = rdata$promoterId,
+                                    geneId = rdata$geneId,
+                                    pval = pval,
+                                    padj = padj,
+                                    abs.cond = mean.cond,
+                                    abs.other = mean.other,
+                                    gexp.cond = mean.gexp.cond,
+                                    gexp.other = mean.gexp.other)
+    return(result)
+}
